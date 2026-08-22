@@ -24,7 +24,7 @@ from recorder import start_recording, resume_pending
 # Public domain used in every generated link. ONLY line to edit if this
 # service's Render domain ever changes.
 PUBLIC_BASE_URL = os.environ.get(
-    "PUBLIC_BASE_URL", "pw-universal-live-pro-player.vercel.app"
+    "PUBLIC_BASE_URL", "https://pw-universal-live-pro-player.vercel.app"
 )
 
 # ─── Server-side Admin Auth (keys never reach the browser) ────────────────
