@@ -102,7 +102,7 @@ main { flex:1; display:flex; flex-direction:column; align-items:center; padding:
 }
 .cbtn:hover { background:rgba(255,255,255,.25); }
 .progress-wrap { flex:1; height:5px; background:rgba(255,255,255,.18); border-radius:99px; cursor:pointer; position:relative; }
-.progress-bar { height:100%; background:linear-gradient(90deg, var(--accent), var(--accent2)); border-radius:99px; width:0%; }
+.progress-bar { height:100%; background:linear-gradient(90deg, #8b5e34, #c68642); border-radius:99px; width:0%; }
 .time-label { font-size:11.5px; color:#d1d5db; min-width:70px; text-align:center; flex-shrink:0; }
 .go-live {
     padding:0 14px; height:30px; border:none; border-radius:999px;
@@ -118,6 +118,21 @@ main { flex:1; display:flex; flex-direction:column; align-items:center; padding:
 
 .live-elapsed { display:flex; align-items:center; gap:6px; }
 .live-elapsed .ldot { width:6px; height:6px; border-radius:50%; background:var(--accent2); flex-shrink:0; }
+
+/* ── Stats grid (Quality / Bitrate / Buffer / Latency) ── */
+.stats-grid {
+    display:grid; grid-template-columns:1fr 1fr; gap:12px;
+    width:100%; max-width:960px; margin-top:16px;
+}
+.stat-box { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+.stat-label { font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px; }
+.stat-value { font-size:20px; font-weight:700; color:var(--accent2); }
+.stat-select {
+    width:100%; background:transparent; border:none; outline:none; appearance:none;
+    -webkit-appearance:none; font-size:20px; font-weight:700; color:var(--accent2);
+    cursor:pointer; font-family:inherit; padding:0;
+}
+.stat-select option { background:#0b0f1a; color:var(--text); }
 
 footer { text-align:center; color:var(--muted); font-size:11.5px; padding:14px; }
 </style>
@@ -173,6 +188,25 @@ footer { text-align:center; color:var(--muted); font-size:11.5px; padding:14px; 
             </div>
         </div>
     </div>
+
+    <div class="stats-grid live-only" id="statsGrid">
+        <div class="stat-box">
+            <div class="stat-label">Quality</div>
+            <select class="stat-select" id="qualitySelect"><option value="-1">Auto</option></select>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Bitrate</div>
+            <div class="stat-value" id="statBitrate">0 kbps</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Buffer</div>
+            <div class="stat-value" id="statBuffer">0.0s</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Latency</div>
+            <div class="stat-value" id="statLatency">--</div>
+        </div>
+    </div>
 </main>
 
 <footer>Made With ❤️</footer>
@@ -206,6 +240,11 @@ footer { text-align:center; color:var(--muted); font-size:11.5px; padding:14px; 
     var timeLabel = document.getElementById("timeLabel");
     var liveElapsedLabel = document.getElementById("liveElapsedLabel");
     var liveElapsedText = document.getElementById("liveElapsedText");
+    var statsGrid = document.getElementById("statsGrid");
+    var qualitySelect = document.getElementById("qualitySelect");
+    var statBitrate = document.getElementById("statBitrate");
+    var statBuffer = document.getElementById("statBuffer");
+    var statLatency = document.getElementById("statLatency");
 
     var hls = null;
     var isLive = true;
@@ -301,6 +340,23 @@ footer { text-align:center; color:var(--muted); font-size:11.5px; padding:14px; 
         };
     }
 
+    // ─────────── Quality selector (Auto ya manual — live mein bhi) ───────────
+    function populateQualityLevels() {
+        if (!hls || !hls.levels) return;
+        qualitySelect.innerHTML = '<option value="-1">Auto</option>';
+        hls.levels.forEach(function (level, idx) {
+            var opt = document.createElement("option");
+            opt.value = idx;
+            opt.textContent = (level.height || "?") + "p";
+            qualitySelect.appendChild(opt);
+        });
+        qualitySelect.value = String(hls.currentLevel);
+    }
+    qualitySelect.addEventListener("change", function () {
+        if (!hls) return;
+        hls.currentLevel = parseInt(qualitySelect.value, 10); // -1 = Auto
+    });
+
     // ─────────── Speed control (VOD only) ───────────
     var SPEEDS = [0.5, 1, 1.25, 1.5, 2];
     btnSpeed.addEventListener("click", function () {
@@ -370,6 +426,7 @@ footer { text-align:center; color:var(--muted); font-size:11.5px; padding:14px; 
                 manifestEverLoaded = true;
                 clearLoadWatchdog();
                 attemptAutoplay();
+                populateQualityLevels();
             });
 
             // Playlist mein ENDLIST aa gaya → live khatam.
@@ -468,9 +525,18 @@ footer { text-align:center; color:var(--muted); font-size:11.5px; padding:14px; 
         if (document.fullscreenElement) {
             document.exitFullscreen();
         } else if (shell.requestFullscreen) {
-            shell.requestFullscreen();
+            shell.requestFullscreen().then(function () {
+                if (screen.orientation && screen.orientation.lock) {
+                    screen.orientation.lock("landscape").catch(function () {});
+                }
+            }).catch(function () {});
         } else if (video.webkitEnterFullscreen) {
             video.webkitEnterFullscreen(); // iOS Safari
+        }
+    });
+    document.addEventListener("fullscreenchange", function () {
+        if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
+            try { screen.orientation.unlock(); } catch (e) {}
         }
     });
 
@@ -516,6 +582,7 @@ footer { text-align:center; color:var(--muted); font-size:11.5px; padding:14px; 
                     liveElapsedText.textContent = fmt(elapsed);
                 }
                 updateGoLiveState();
+                updateLiveStats();
             } else if (video.duration) {
                 progressBar.style.width = (video.currentTime / video.duration) * 100 + "%";
                 timeLabel.textContent = fmt(video.currentTime) + " / " + fmt(video.duration);
@@ -529,11 +596,46 @@ footer { text-align:center; color:var(--muted); font-size:11.5px; padding:14px; 
         return (h ? h + ":" : "") + String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0");
     }
 
+    // Bitrate/Buffer/Latency — real values, hls.js se seedha nikale gaye
+    function updateLiveStats() {
+        var bufferedSecs = 0;
+        if (video.buffered && video.buffered.length) {
+            try {
+                bufferedSecs = Math.max(0, video.buffered.end(video.buffered.length - 1) - video.currentTime);
+            } catch (e) {}
+        }
+        statBuffer.textContent = bufferedSecs.toFixed(1) + "s";
+
+        if (hls && hls.levels && hls.levels[hls.currentLevel]) {
+            var bps = hls.levels[hls.currentLevel].bitrate;
+            statBitrate.textContent = bps ? Math.round(bps / 1000) + " kbps" : "0 kbps";
+        }
+
+        // hls.latency ke bina proper PROGRAM-DATE-TIME sync ke bahut bada/
+        // galat value de sakta hai — sirf sane range mein hi dikhao.
+        if (hls && typeof hls.latency === "number" && !isNaN(hls.latency) && hls.latency >= 0 && hls.latency < 60) {
+            statLatency.textContent = hls.latency.toFixed(1) + "s";
+        } else {
+            statLatency.textContent = "--";
+        }
+    }
+
     progressWrap.addEventListener("click", function (e) {
-        if (isLive) return; // live mein seek mat karo — Go Live use karo
-        if (!video.duration) return;
         var rect = progressWrap.getBoundingClientRect();
-        video.currentTime = ((e.clientX - rect.left) / rect.width) * video.duration;
+        var ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+        if (isLive) {
+            // Live DVR seek — user manually aage/pichhe kar sakta hai.
+            // Live edge par sirf "Go Live" button dabane se hi jaayega,
+            // yahan koi forceful snap-back nahi hai.
+            if (!video.seekable.length) return;
+            var lstart = video.seekable.start(0);
+            var lend = video.seekable.end(video.seekable.length - 1);
+            video.currentTime = lstart + ratio * (lend - lstart);
+            video.play().catch(function () {});
+            return;
+        }
+        if (!video.duration) return;
+        video.currentTime = ratio * video.duration;
     });
 
     // ─────────── Boot ───────────
