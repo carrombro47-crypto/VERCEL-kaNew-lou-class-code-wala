@@ -24,7 +24,7 @@ from recorder import start_recording, resume_pending
 # Public domain used in every generated link. ONLY line to edit if this
 # service's Render domain ever changes.
 PUBLIC_BASE_URL = os.environ.get(
-    "PUBLIC_BASE_URL", "https://pw-universal-live-pro-player.onrender.com"
+    "PUBLIC_BASE_URL", "https://pw-live-proxy-v2.onrender.com"
 )
 
 # ─── Server-side Admin Auth (keys never reach the browser) ────────────────
@@ -32,7 +32,12 @@ OWNER_NAME = os.environ.get("OWNER_NAME", "ViPvxMS10BRO")
 ADMIN_KEYS = ["MS#Admin_R4!xQ8Lp7", "Core$MS_N6v!T2Zk9", "mS@Root_P8#Lm5Qx3"]
 VIP_KEYS = ["ToXic#ViPR8m!4QxL7", "tOxic@VipN5v!9ZpK2", "ToXic$ViPX7#rT3Lm8"]
 
-RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
+if os.environ.get("VERCEL"):
+    # Vercel serverless filesystem read-only hai, sirf /tmp likhne layak
+    # hai (aur wo bhi ephemeral — restart/redeploy pe khaali ho jaata hai).
+    RECORDINGS_DIR = "/tmp/recordings"
+else:
+    RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
 # ─── Flask app ──────────────────────────────────────────────────────────────
