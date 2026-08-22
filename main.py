@@ -24,8 +24,15 @@ from recorder import start_recording, resume_pending
 # Public domain used in every generated link. ONLY line to edit if this
 # service's Render domain ever changes.
 PUBLIC_BASE_URL = os.environ.get(
-    "PUBLIC_BASE_URL", "https://pw-universal-live-pro-player.vercel.app"
+    "PUBLIC_BASE_URL", "pw-universal-live-pro-player.vercel.app"
 )
+# "https://" scheme zaroori hai warna generated link (jaise
+# "domain.com/CODE/https://...") ek valid absolute URL nahi banta —
+# browser address bar isko URL na maan ke seedha Google search bhej deta
+# hai (khaas kar jab link me lambi/complex query string ho). Agar env var
+# me pehle se scheme diya ho to usko chhedte nahi.
+if not PUBLIC_BASE_URL.startswith(("http://", "https://")):
+    PUBLIC_BASE_URL = "https://" + PUBLIC_BASE_URL
 
 # ─── Server-side Admin Auth (keys never reach the browser) ────────────────
 OWNER_NAME = os.environ.get("OWNER_NAME", "ViPvxMS10BRO")
