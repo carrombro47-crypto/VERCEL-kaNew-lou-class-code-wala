@@ -415,9 +415,14 @@ footer { text-align:center; color:var(--muted); font-size:11.5px; padding:14px; 
                         // don't manually reset the retry cycle.
                         return;
                     }
-                    // Playback had already started once — a network error here
-                    // near the live edge usually means the live class just ended.
-                    showLiveEnded();
+                    // Playback pehle se chal rahi thi — ye zyaadatar
+                    // transient CDN/segment hiccup hota hai (live streams
+                    // mein bilkul normal hai), live GENUINELY khatam hui ya
+                    // nahi ye sirf upar wale LEVEL_LOADED event ke
+                    // "#EXT-X-ENDLIST" check se pata chalta hai (seedha
+                    // m3u8 se authoritative signal) — yahan sirf silently
+                    // reconnect/retry karo, "ended" mat maan lo.
+                    hls.startLoad();
                 } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
                     hls.recoverMediaError();
                 } else {
