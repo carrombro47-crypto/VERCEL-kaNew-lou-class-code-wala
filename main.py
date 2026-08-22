@@ -157,12 +157,16 @@ UPSTREAM_MAX_RETRIES = 2  # transient CDN edge hiccups ke liye
 
 @flask_app.after_request
 def add_cors_headers(resp):
-    """CORS on every response — success ho ya error."""
+    """CORS on every response — success ho ya error. Iframe/embed
+    bhi kahi se bhi allowed hai (X-Frame-Options set nahi karte, aur
+    CSP explicitly frame-ancestors * — koi bhi site ise apne inline
+    player me embed kar sake, block nahi karna)."""
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "*"
     resp.headers["Access-Control-Expose-Headers"] = "*"
     resp.headers["Access-Control-Max-Age"] = "86400"
+    resp.headers["Content-Security-Policy"] = "frame-ancestors *;"
     return resp
 
 
