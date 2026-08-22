@@ -53,7 +53,13 @@ import requests
 
 from utils.text import display_title
 
-RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
+# Vercel serverless filesystem read-only hai, sirf /tmp likhne layak hai
+# (aur wo bhi ephemeral) — main.py mein bhi yahi VERCEL check hai, wahi
+# pattern yahan duplicate kiya taaki dono jagah RECORDINGS_DIR match kare.
+if os.environ.get("VERCEL"):
+    RECORDINGS_DIR = "/tmp/recordings"
+else:
+    RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
 # Same header set as main.py's UPSTREAM_HEADERS — kaafi CDN edge nodes
