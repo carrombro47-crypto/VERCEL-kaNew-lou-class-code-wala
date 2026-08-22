@@ -13,12 +13,11 @@ from urllib.parse import urljoin, urlparse, parse_qsl, urlencode, urlunparse, qu
 import requests
 from flask import (
     Flask, render_template, request, jsonify, redirect, url_for,
-    session, Response, send_from_directory,
+    session, Response,
 )
 
 from utils.db import get_db
 from utils.text import display_title
-from recorder import start_recording, resume_pending
 
 # ─── Configuration ──────────────────────────────────────────────────────────
 # Public domain used in every generated link. ONLY line to edit if this
@@ -38,14 +37,6 @@ if not PUBLIC_BASE_URL.startswith(("http://", "https://")):
 OWNER_NAME = os.environ.get("OWNER_NAME", "ViPvxMS10BRO")
 ADMIN_KEYS = ["MS#Admin_R4!xQ8Lp7", "Core$MS_N6v!T2Zk9", "mS@Root_P8#Lm5Qx3"]
 VIP_KEYS = ["ToXic#ViPR8m!4QxL7", "tOxic@VipN5v!9ZpK2", "ToXic$ViPX7#rT3Lm8"]
-
-if os.environ.get("VERCEL"):
-    # Vercel serverless filesystem read-only hai, sirf /tmp likhne layak
-    # hai (aur wo bhi ephemeral — restart/redeploy pe khaali ho jaata hai).
-    RECORDINGS_DIR = "/tmp/recordings"
-else:
-    RECORDINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recordings")
-os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
 # ─── Flask app ──────────────────────────────────────────────────────────────
 flask_app = Flask(__name__)
@@ -539,11 +530,6 @@ def api_generate():
     if live_code:
         _save_live_code(live_code, name, title, live_code_expires_at)
 
-    # Live end hote hi automatic download + local-storage processing ke
-    # liye background watcher — koi manual "Start Recording" click zaroori
-    # nahi, generate hote hi khud shuru ho jaata hai.
-    start_recording(name, original_url, lectures_col)
-
     if live_code:
         public_link = f"{PUBLIC_BASE_URL}/{live_code}/{original_url}"
     else:
@@ -555,89 +541,6 @@ def api_generate():
         "public_link": public_link,
         "status": doc.get("status", "LIVE"),
     })
-
-
-@flask_app.route("/api/record/<name>", methods=["POST"])
-@admin_required
-def api_record(name):
-    """Manual override/kick — agar kisi wajah se background watcher active
-    nahi hai (e.g. race condition) to ise idempotently (re)start karo.
-    Normal flow mein iski zaroorat nahi padti — generate hote hi automatic
-    watcher already chal raha hota hai."""
-    doc = lectures_col.find_one({"_id": name})
-    if not doc:
-        return jsonify({"ok": False, "error": "Stream not found"}), 404
-    status = doc.get("status")
-    if status == "READY":
-        return jsonify({"ok": False, "error": "Already READY"}), 409
-    started = start_recording(name, doc["original_url"], lectures_col)
-    if not started:
-        return jsonify({"ok": True, "status": status, "note": "Watcher already running"})
-    return jsonify({"ok": True, "status": doc.get("status", "LIVE")})
-
-
-@flask_app.route("/api/status/<name>")
-def api_status(name):
-    """Student page isko poll karta hai — LIVE / PROCESSING / READY."""
-    doc = lectures_col.find_one({"_id": name})
-    if not doc:
-        return jsonify({"ok": False, "error": "Not found"}), 404
-
-    status = doc.get("status", "LIVE")
-    resp = {"ok": True, "status": status, "title": display_title(name)}
-
-    if status == "READY":
-        resp["watch_url"] = f"{PUBLIC_BASE_URL}/recordings/{name}-480p.mp4"
-        resp["download_url"] = f"{PUBLIC_BASE_URL}/api/videos/{quote(name)}/download"
-        resp["duration"] = doc.get("duration")
-        resp["file_size"] = doc.get("file_size")
-    elif status == "ERROR":
-        resp["error"] = doc.get("error", "Processing failed")
-    return jsonify(resp)
-
-
-@flask_app.route("/recordings/<path:filename>")
-def recordings(filename):
-    # conditional=True → Range support (Watch Online seek ke liye)
-    return send_from_directory(
-        RECORDINGS_DIR, filename, conditional=True, mimetype="video/mp4"
-    )
-
-
-@flask_app.route("/api/videos/<name>/download")
-def api_download(name):
-    """
-    Direct browser/device download — Telegram ki koi zaroorat nahi.
-    - send_from_directory (Werkzeug send_file) file ko chunks mein
-      stream karta hai, poora file kabhi bhi server RAM mein load nahi
-      hota — 200-900MB files ke liye bhi safe hai.
-    - conditional=True → HTTP Range support (browsers isse resume-able
-      / paused-resumed downloads karte hain).
-    - as_attachment + download_name → proper
-      "Content-Disposition: attachment; filename=..." header, taaki
-      click karte hi seedha device storage mein save ho, naye tab mein
-      khule nahi.
-    """
-    doc = lectures_col.find_one({"_id": name}, {"status": 1, "video_filename": 1})
-    if not doc:
-        return jsonify({"error": "Stream not found"}), 404
-    if doc.get("status") != "READY":
-        return jsonify({"error": "Video abhi ready nahi hai"}), 409
-
-    filename = doc.get("video_filename") or f"{name}-480p.mp4"
-    file_path = os.path.join(RECORDINGS_DIR, filename)
-    if not os.path.exists(file_path):
-        return jsonify({"error": "File missing on server"}), 404
-
-    download_name = f"{display_title(name)}.mp4"
-    return send_from_directory(
-        RECORDINGS_DIR,
-        filename,
-        as_attachment=True,
-        download_name=download_name,
-        mimetype="video/mp4",
-        conditional=True,
-    )
 
 
 @flask_app.route("/generated/<name>")
@@ -688,6 +591,12 @@ def play_live_code(code, original_url):
     full_url = original_url
     if request.query_string:
         full_url += "?" + request.query_string.decode()
+    # Vercel ka edge/routing layer path ke andar "//" ko kabhi-kabhi "/"
+    # me collapse kar deta hai (well-known CDN/proxy normalization) —
+    # isse "https://d2xi...cloudfront.net/..." "https:/d2xi..." (ek
+    # slash) ban jaata hai aur URL genuinely valid hone ke baawajood
+    # "invalid" dikhta hai. Yahan detect + repair karo.
+    full_url = re.sub(r"^(https?):/(?!/)", r"\1://", full_url)
     if not full_url.startswith(("http://", "https://")):
         return "Link expire ho gaya ya invalid hai. 😔", 404
 
@@ -699,13 +608,6 @@ def play_live_code(code, original_url):
         live_code=code,
         live_original_url=full_url,
     )
-
-
-# ── Startup recovery ─────────────────────────────────────────────────────
-# App start/redeploy hote hi jo lectures LIVE/RECORDING/PROCESSING atki hui
-# thi unke background watchers dobara chalu karo, taaki koi bhi live class
-# jiska recording pending tha wo aage bhi khud-ba-khud process ho jaaye.
-threading.Thread(target=resume_pending, args=(lectures_col,), daemon=True).start()
 
 
 def run_flask():
